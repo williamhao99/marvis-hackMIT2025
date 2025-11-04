@@ -25,7 +25,6 @@ export class VisionService {
   async identifyDevice(imageBuffer: Buffer): Promise<VisionServiceResponse> {
     const identifications: DeviceIdentification[] = [];
 
-    // Try Anthropic Claude first (preferred)
     if (this.anthropicClient) {
       try {
         const anthropicResult = await this.identifyWithAnthropic(imageBuffer);
@@ -37,7 +36,6 @@ export class VisionService {
       }
     }
 
-    // Fallback to OpenAI if available
     if (this.openaiApiKey && identifications.length === 0) {
       try {
         const openaiResult = await this.identifyWithOpenAI(imageBuffer);
@@ -49,7 +47,6 @@ export class VisionService {
       }
     }
 
-    // Mock data if no API keys available
     if (identifications.length === 0) {
       identifications.push({
         name: 'IKEA BILLY Bookshelf',
@@ -130,7 +127,6 @@ Focus on items that people commonly need instructions for. If you see IKEA furni
           description: result.description || 'Device identified via Anthropic Claude vision'
         };
       } catch (parseError) {
-        // If JSON parsing fails, try to extract info from text
         const text = content.text;
         return {
           name: text.includes('IKEA') ? 'IKEA Furniture' : 'Identified Object',

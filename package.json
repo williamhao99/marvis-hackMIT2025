@@ -1,13 +1,50 @@
 {
-  "name": "hackmit2025-hello-world",
+  "name": "marvis",
   "version": "1.0.0",
+  "description": "AI-powered handyman assistant through smart glasses - HackMIT 2025 Winner",
   "main": "dist/index.js",
   "type": "module",
   "private": true,
+  "author": {
+    "name": "William Hao",
+    "email": "contact@willhao.dev"
+  },
+  "contributors": [
+    "William Hao - Smart glasses software, AR UI/UX, voice command system",
+    "Pierce Brookins - Backend architecture, AI pipeline integration, API orchestration",
+    "Jessica Young - Companion app development, UI/UX design",
+    "Atharv Mungale - Mentra Live integration, barcode scanning, S3 infrastructure"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "ai",
+    "smart-glasses",
+    "ar",
+    "augmented-reality",
+    "assembly-instructions",
+    "handyman",
+    "mentraos",
+    "anthropic",
+    "cerebras",
+    "computer-vision",
+    "voice-assistant",
+    "hackmit",
+    "hackathon"
+  ],
+  "homepage": "https://plume.hackmit.org/project/rmgcj-hlsfk-pplsy-jbtfm",
+  "engines": {
+    "bun": ">=1.0.0",
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "build": "tsc",
-    "start": "bun run dist/index.js"
+    "start": "bun run dist/index.js",
+    "test": "bun test",
+    "clean": "rm -rf dist/ node_modules/",
+    "setup": "bun install && cp .env.example .env",
+    "verify": "bash verify-setup.sh",
+    "ngrok": "bash start-ngrok.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.62.0",

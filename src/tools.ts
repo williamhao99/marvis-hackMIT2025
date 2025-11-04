@@ -3,13 +3,6 @@ import { HandymanService } from './services/handymanService';
 
 const handymanService = new HandymanService();
 
-/**
- * Handle a tool call
- * @param toolCall - The tool call from the server
- * @param userId - The user ID of the user who called the tool
- * @param session - The session object if the user has an active session
- * @returns A promise that resolves to the tool call result
- */
 export async function handleToolCall(toolCall: ToolCall, userId: string, session: AppSession|undefined): Promise<string | undefined> {
   console.log(`Tool called: ${toolCall.toolId}`);
   console.log(`Tool call timestamp: ${toolCall.timestamp}`);
@@ -62,26 +55,21 @@ export async function handleToolCall(toolCall: ToolCall, userId: string, session
   }
 }
 
-/**
- * Handle data refresh tool call
- * Refreshes the product data from the S3 source
- */
 async function handleRefreshData(userId: string, session: AppSession): Promise<string> {
   try {
-    session.layouts.showTextWall("🔄 Refreshing product data...");
+    session.layouts.showTextWall("Refreshing product data...");
 
-    // Create a new data ingestion service instance to refresh
     const { DataIngestionService } = await import('./services/dataIngestionService');
     const dataService = new DataIngestionService();
     const refreshed = await dataService.refreshData();
 
     if (refreshed) {
-      return "✅ Product data refreshed successfully! Say 'identify this' to see the latest information.";
+      return "Product data refreshed successfully! Say 'identify this' to see the latest information.";
     } else {
-      return "❌ Failed to refresh product data. Please check your connection and try again.";
+      return "Failed to refresh product data. Please check your connection and try again.";
     }
   } catch (error) {
     console.error('Data refresh error:', error);
-    return "❌ Error refreshing data. Please try again later.";
+    return "Error refreshing data. Please try again later.";
   }
 }

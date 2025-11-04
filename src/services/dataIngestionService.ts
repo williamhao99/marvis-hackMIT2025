@@ -33,7 +33,7 @@ export class DataIngestionService {
   private s3Url: string;
   private cachedData: S3ProductData | null = null;
   private lastFetch: Date | null = null;
-  private cacheTimeout = 5 * 60 * 1000; // 5 minutes
+  private cacheTimeout = 5 * 60 * 1000;
 
   constructor(s3Url: string = 'https://hackmit25.s3.us-east-1.amazonaws.com/test.json') {
     this.s3Url = s3Url;
@@ -41,7 +41,6 @@ export class DataIngestionService {
 
   async fetchProductData(): Promise<S3ProductData | null> {
     try {
-      // Check cache validity
       if (this.cachedData && this.lastFetch &&
           (Date.now() - this.lastFetch.getTime()) < this.cacheTimeout) {
         return this.cachedData;
@@ -156,7 +155,7 @@ export class DataIngestionService {
     const product = this.cachedData.product;
     const manual = this.cachedData.instruction_manual;
 
-    let summary = `📦 **${product.name}** by ${product.brand}\n`;
+    let summary = `**${product.name}** by ${product.brand}\n`;
     summary += `Model: ${product.id}\n`;
     summary += `Color: ${product.color}\n`;
     summary += `Material: ${product.material}\n`;
@@ -178,16 +177,16 @@ export class DataIngestionService {
     }
 
     if (manual) {
-      summary += `\n🔧 **Assembly Info:**\n`;
+      summary += `\n**Assembly Info:**\n`;
       summary += `Time: ${manual.assembly_time_minutes} minutes\n`;
       summary += `Difficulty: medium\n`;
       summary += `Steps: ${manual.steps.length}\n`;
       summary += `Tools: ${manual.tools_required.join(', ')}\n`;
 
       if (manual.safety_warnings.length > 0) {
-        summary += `\n⚠️ **Safety Warnings:**\n`;
+        summary += `\n**Safety Warnings:**\n`;
         manual.safety_warnings.forEach(warning => {
-          summary += `• ${warning}\n`;
+          summary += `${warning}\n`;
         });
       }
     }

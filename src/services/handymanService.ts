@@ -20,9 +20,8 @@ export class HandymanService {
 
   async identifyDevice(userId: string, session: AppSession, imageBuffer?: Buffer): Promise<string> {
     try {
-      session.layouts.showTextWall("📡 Loading product data...");
+      session.layouts.showTextWall("Loading product data...");
 
-      // Use S3 data ingestion instead of computer vision
       const deviceIdentification = await this.dataIngestionService.getDeviceIdentification();
 
       if (!deviceIdentification) {
@@ -32,10 +31,9 @@ export class HandymanService {
       const userSession = this.sessionManager.getSession(userId) || this.sessionManager.createSession(userId);
       this.sessionManager.addNote(userId, `Loaded device: ${deviceIdentification.name}`);
 
-      // Get detailed product summary
       const productSummary = this.dataIngestionService.getDataSummary();
 
-      let response = `📦 **Product Loaded**\n\n`;
+      let response = `**Product Loaded**\n\n`;
       response += productSummary;
       response += "\n\nSay 'show instructions' to get step-by-step assembly guidance!";
 
@@ -50,9 +48,8 @@ export class HandymanService {
 
   async getInstructions(userId: string, session: AppSession, itemName?: string): Promise<string> {
     try {
-      session.layouts.showTextWall("📖 Loading assembly instructions...");
+      session.layouts.showTextWall("Loading assembly instructions...");
 
-      // First try to get instructions from S3 data
       const s3Manual = await this.dataIngestionService.getInstructionManual();
 
       if (s3Manual) {
@@ -67,7 +64,6 @@ export class HandymanService {
         return response;
       }
 
-      // Fallback to AI-generated instructions if no S3 data
       let device: DeviceIdentification;
 
       if (itemName) {
@@ -78,7 +74,6 @@ export class HandymanService {
           description: `User specified: ${itemName}`
         };
       } else {
-        // Try to get device from S3 data first
         const s3Device = await this.dataIngestionService.getDeviceIdentification();
         if (s3Device) {
           device = s3Device;
@@ -122,7 +117,7 @@ export class HandymanService {
     const stepDisplay = this.instructionService.formatStepForDisplay(currentStep, userSession.currentManual);
     const progress = this.sessionManager.getProgress(userId);
 
-    let response = `📋 **${userSession.currentManual.deviceName}**\n`;
+    let response = `**${userSession.currentManual.deviceName}**\n`;
     if (progress) {
       response += `Progress: ${progress.completed.length}/${progress.total} steps (${progress.percentage}%)\n\n`;
     }
@@ -133,7 +128,7 @@ export class HandymanService {
     const voiceEnabled = session.settings.get<boolean>('voice_guidance_enabled', true);
     if (voiceEnabled) {
       setTimeout(() => {
-        session.layouts.showTextWall("🔊 " + currentStep.description);
+        session.layouts.showTextWall("" + currentStep.description);
       }, 2000);
     }
 
@@ -150,7 +145,7 @@ export class HandymanService {
 
     if (userSession.currentStep > userSession.currentManual.totalSteps) {
       this.sessionManager.endSession(userId);
-      return "🎉 Congratulations! You've completed all steps. Great job!";
+      return "Congratulations! You've completed all steps. Great job!";
     }
 
     return this.showCurrentStep(userId, session);
@@ -180,7 +175,7 @@ export class HandymanService {
     }
 
     const progress = this.sessionManager.getProgress(userId);
-    let response = "✅ Step marked as complete!\n\n";
+    let response = "Step marked as complete!\n\n";
 
     if (progress) {
       response += `Progress: ${progress.completed.length}/${progress.total} steps completed (${progress.percentage}%)\n\n`;
@@ -188,7 +183,7 @@ export class HandymanService {
 
     if (userSession.currentStep >= userSession.currentManual.totalSteps) {
       this.sessionManager.endSession(userId);
-      response += "🎉 All steps completed! Excellent work!";
+      response += "All steps completed! Excellent work!";
     } else {
       response += "Ready for the next step? Say 'next step' to continue.";
     }
@@ -200,7 +195,7 @@ export class HandymanService {
   async requestHelp(userId: string, session: AppSession, issue?: string): Promise<string> {
     const userSession = this.sessionManager.getSession(userId);
 
-    let response = "🆘 **Remote Assistance Requested**\n\n";
+    let response = "**Remote Assistance Requested**\n\n";
 
     if (issue) {
       response += `Issue: ${issue}\n\n`;
@@ -212,9 +207,9 @@ export class HandymanService {
     }
 
     response += "A support request has been logged. In a real implementation, this would:\n";
-    response += "• Start video streaming via MentraOS Live\n";
-    response += "• Connect you with a remote expert\n";
-    response += "• Allow screen sharing of instructions\n\n";
+    response += "Start video streaming via MentraOS Live\n";
+    response += "Connect you with a remote expert\n";
+    response += "Allow screen sharing of instructions\n\n";
     response += "For now, try rephrasing your question or saying 'repeat instruction'.";
 
     if (issue) {
@@ -230,7 +225,7 @@ export class HandymanService {
   }
 
   private formatInstructionOverview(manual: InstructionManual): string {
-    let overview = `📋 **${manual.deviceName} ${manual.type.toUpperCase()}**\n\n`;
+    let overview = `**${manual.deviceName} ${manual.type.toUpperCase()}**\n\n`;
 
     if (manual.brand) overview += `Brand: ${manual.brand}\n`;
     overview += `Difficulty: ${manual.difficulty}\n`;
@@ -241,11 +236,11 @@ export class HandymanService {
     }
 
     if (manual.tools.length > 0) {
-      overview += `\n🔧 **Tools needed:**\n${manual.tools.map(tool => `• ${tool}`).join('\n')}\n`;
+      overview += `\n**Tools needed:**\n${manual.tools.map(tool => tool).join('\n')}\n`;
     }
 
     if (manual.parts.length > 0) {
-      overview += `\n📦 **Parts:**\n${manual.parts.map(part => `• ${part}`).join('\n')}\n`;
+      overview += `\n**Parts:**\n${manual.parts.map(part => part).join('\n')}\n`;
     }
 
     overview += "\nStarting with step 1...";

@@ -1,3 +1,10 @@
+/**
+ * Marvis - AI-Powered Handyman Assistant
+ *
+ * Provides hands-free assembly guidance through smart glasses using barcode scanning,
+ * AI-powered instruction parsing, and voice navigation.
+ */
+
 import { AppServer, AppSession, TranscriptionData, ViewType, ToolCall } from "@mentra/sdk"
 import axios from "axios"
 import path from 'path'
@@ -6,88 +13,57 @@ import { HandymanService } from './services/handymanService'
 import { DataIngestionService } from './services/dataIngestionService'
 import { SessionManager } from './services/sessionManager'
 import { BarcodeService } from './services/barcodeService'
+import { config } from './config'
+import { Logger } from './utils/logger'
+import type { InstructionStep, Project } from './types'
 
-const PACKAGE_NAME = process.env.PACKAGE_NAME || "com.hackmit2025.helloworld"
-const MENTRAOS_API_KEY = process.env.MENTRAOS_API_KEY
-const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY
-const SERPAPI_KEY = process.env.SERPAPI_KEY
-const EXA_API_KEY = process.env.EXA_API_KEY
-const PORT = parseInt(process.env.PORT || "3000")
+const logger = Logger.createLogger('Core')
 
-// S3 Bucket Configuration
-const S3_BUCKET_URL = "https://hackmit25.s3.amazonaws.com"
+const PACKAGE_NAME = config.packageName
+const MENTRAOS_API_KEY = config.mentraApiKey
+const CEREBRAS_API_KEY = config.cerebrasApiKey
+const SERPAPI_KEY = config.serpapiKey
+const EXA_API_KEY = config.exaApiKey
+const ANTHROPIC_API_KEY = config.anthropicApiKey
+const PORT = config.port
+const S3_BUCKET_URL = config.s3BucketUrl
 
-// Dynamic barcode fetching from S3
 let CURRENT_BARCODE: string | null = null
-if (!MENTRAOS_API_KEY) {
-  console.error("MENTRAOS_API_KEY environment variable is required")
-  console.error("Please set it in your .env file")
-  process.exit(1)
-}
 
-if (!CEREBRAS_API_KEY) {
-  console.warn("CEREBRAS_API_KEY not found - voice command processing will be limited")
-}
+logger.info(`Marvis starting on port ${PORT}`)
+logger.info(`Package: ${PACKAGE_NAME}`)
 
-if (!SERPAPI_KEY) {
-  console.warn("SERPAPI_KEY not found - advanced search functionality will be disabled")
-}
-
-if (!EXA_API_KEY) {
-  console.warn("EXA_API_KEY not found - Exa search functionality will be disabled")
-}
-
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ||
-                          process.env.CLAUDE_API_KEY ||
-                          process.env.ANTHROPIC_KEY
-
-if (!ANTHROPIC_API_KEY) {
-  console.warn("⚠️ ANTHROPIC_API_KEY not found - will use fallback instructions")
-  console.warn("💡 Set ANTHROPIC_API_KEY, CLAUDE_API_KEY, or ANTHROPIC_KEY for dynamic instruction generation")
+if (ANTHROPIC_API_KEY) {
+  logger.info(`Anthropic API key configured`)
 } else {
-  console.log(`🤖 Anthropic API key found: ${ANTHROPIC_API_KEY.substring(0, 8)}...`)
+  logger.warn("Anthropic API key not found - will use fallback instructions")
 }
 
-interface InstructionStep {
-  id: number
-  title: string
-  description: string
-  details?: string[]
-  tips?: string
-  diagram?: string[]
-}
-
-interface Project {
-  id: string
-  name: string
-  totalSteps: number
-  steps: InstructionStep[]
-  source: 'hardcoded' | 'barcode' | 's3'
-}
-
-// Generate assembly instructions using Anthropic API
+/**
+ * Generates AR-optimized assembly instructions from PDF manuals using Anthropic Claude.
+ * Falls back to generic instructions if API is unavailable.
+ */
 async function generateInstructionsFromPDF(productTitle: string, pdfUrl: string): Promise<InstructionStep[]> {
-  // Try different environment variable names for Anthropic API key
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ||
                            process.env.CLAUDE_API_KEY ||
                            process.env.ANTHROPIC_KEY
 
   if (!ANTHROPIC_API_KEY) {
-    console.warn("⚠️ Anthropic API key not available, using fallback instructions")
-    console.warn("💡 Set ANTHROPIC_API_KEY, CLAUDE_API_KEY, or ANTHROPIC_KEY in your .env file")
+    console.warn("Anthropic API key not available, using fallback instructions")
+    console.warn("Set ANTHROPIC_API_KEY, CLAUDE_API_KEY, or ANTHROPIC_KEY in your .env file")
     return generateFallbackInstructions(productTitle)
   }
 
   try {
-    console.log(`🤖 Generating instructions for ${productTitle} from PDF: ${pdfUrl}`)
-    console.log(`🔑 Using API key: ${ANTHROPIC_API_KEY.substring(0, 8)}...`)
+    console.log(`Generating instructions for ${productTitle} from PDF: ${pdfUrl}`)
+    console.log(`Using API key: ${ANTHROPIC_API_KEY.substring(0, 8)}...`)
 
     const prompt = `You are an expert at extracting and formatting assembly instructions.
 
 Product: ${productTitle}
 PDF Manual URL: ${pdfUrl}
 
-Carefully analyze the provided PDF manual and generate assembly steps that **match the actual instructions from the PDF** as closely as possible. Do not invent steps—only use what is in the manual. Rephrase them to be concise and action-oriented, but preserve the original meaning and order.
+Carefully analyze the provided PDF manual and generate assembly steps that **match the actual instructions from the PDF** as closely as possible. Do not invent stepsonly use what is in the manual. Rephrase them to be concise and action-oriented, but preserve the original meaning and order.
 
 Each step must be:
 - Based directly on the PDF instructions
@@ -128,44 +104,40 @@ Return ONLY the JSON array, no other text.`
     })
 
     const content = response.data.content[0].text
-    // Extract JSON from the response
     const jsonMatch = content.match(/\[[\s\S]*\]/)
     if (jsonMatch) {
       const steps = JSON.parse(jsonMatch[0])
-      console.log(`✅ Generated ${steps.length} instruction steps using Anthropic API`)
+      console.log(`Generated ${steps.length} instruction steps using Anthropic API`)
 
-      // Log each step to console for debugging
-      console.log('📋 Generated Steps:')
+      console.log('Generated Steps:')
       steps.forEach((step: InstructionStep, index: number) => {
         console.log(`  ${index + 1}. ${step.title}: ${step.description}`)
         if (step.details) {
           step.details.forEach(detail => console.log(`     - ${detail}`))
         }
         if (step.tips) {
-          console.log(`     💡 ${step.tips}`)
+          console.log(`     ${step.tips}`)
         }
       })
 
       return steps
     } else {
-      console.warn("⚠️ No JSON found in Anthropic response, using fallback")
+      console.warn("No JSON found in Anthropic response, using fallback")
     }
   } catch (error: any) {
     if (error.response?.status === 401) {
-      console.error('❌ Anthropic API authentication failed - check your API key')
-      console.error('💡 Make sure your API key is valid and starts with "sk-ant-"')
+      console.error('Anthropic API authentication failed - check your API key')
+      console.error('Make sure your API key is valid and starts with "sk-ant-"')
     } else if (error.response?.status === 429) {
-      console.error('❌ Anthropic API rate limit exceeded - please wait')
+      console.error('Anthropic API rate limit exceeded - please wait')
     } else {
-      console.error('❌ Error generating instructions with Anthropic:', error.message)
+      console.error('Error generating instructions with Anthropic:', error.message)
     }
   }
 
-  // Fallback if API fails
   return generateFallbackInstructions(productTitle)
 }
 
-// Fallback instructions if API is unavailable
 function generateFallbackInstructions(productTitle: string): InstructionStep[] {
   const isLego = productTitle.toLowerCase().includes('lego')
   const isFurniture = productTitle.toLowerCase().includes('shelf') ||
@@ -251,7 +223,6 @@ function generateFallbackInstructions(productTitle: string): InstructionStep[] {
     ]
   }
 
-  // Generic fallback
   return [
     {
       id: 1,
@@ -293,10 +264,8 @@ function generateFallbackInstructions(productTitle: string): InstructionStep[] {
 
 type AppState = 'welcome' | 'selecting' | 'building' | 'completed'
 
-// Cache for generated projects to avoid regenerating
 const projectCache = new Map<string, Project>()
 
-// Cerebras API integration - Step 1: Identify product from barcode
 async function identifyProductFromBarcode(barcode: string): Promise<string | null> {
   if (!CEREBRAS_API_KEY) {
     console.warn("Cerebras API key not available")
@@ -330,7 +299,6 @@ async function identifyProductFromBarcode(barcode: string): Promise<string | nul
   }
 }
 
-// Cerebras API integration - Analyze Google search results for confident product identification
 async function analyzeProductFromGoogleResults(barcode: string, googleResults: any): Promise<string | null> {
   if (!CEREBRAS_API_KEY) {
     console.warn("Cerebras API key not available")
@@ -342,7 +310,6 @@ async function analyzeProductFromGoogleResults(barcode: string, googleResults: a
   }
 
   try {
-    // Prepare the search results for analysis
     const resultsText = googleResults.items.slice(0, 5).map((item: any, index: number) =>
       `${index + 1}. Title: ${item.title}
       URL: ${item.link}
@@ -382,7 +349,6 @@ Respond with ONLY the product name, nothing else. Be confident and specific.`
   }
 }
 
-// Cerebras API integration - Step 2: Generate instruction search query
 async function generateInstructionQuery(voiceCommand: string, productTitle: string): Promise<string | null> {
   if (!CEREBRAS_API_KEY) {
     console.warn("Cerebras API key not available")
@@ -416,14 +382,13 @@ async function generateInstructionQuery(voiceCommand: string, productTitle: stri
   }
 }
 
-// SerpAPI integration
 async function searchWithGoogle(query: string): Promise<any> {
   if (!SERPAPI_KEY) {
     console.warn("SerpAPI key not available")
     return null
   }
 
-  console.log(`🔍 Searching SerpAPI for: "${query}"`)
+  console.log(`Searching SerpAPI for: "${query}"`)
 
   try {
     const response = await axios.get('https://serpapi.com/search', {
@@ -435,9 +400,8 @@ async function searchWithGoogle(query: string): Promise<any> {
       }
     })
 
-    console.log(`📊 SerpAPI response status: ${response.status}`)
+    console.log(`SerpAPI response status: ${response.status}`)
 
-    // Transform SerpAPI response to match expected format
     const transformedResponse = {
       searchInformation: {
         totalResults: response.data.search_information?.total_results || 0
@@ -459,7 +423,6 @@ async function searchWithGoogle(query: string): Promise<any> {
   }
 }
 
-// SerpAPI for PDF files specifically
 async function searchGoogleForPDFs(query: string): Promise<any> {
   if (!SERPAPI_KEY) {
     console.warn("SerpAPI key not available for PDF search")
@@ -468,7 +431,7 @@ async function searchGoogleForPDFs(query: string): Promise<any> {
 
   const cleanQuery = query.replace(/['"]/g, '').trim()
   const pdfQuery = `${cleanQuery} filetype:pdf`
-  console.log(`🔍 Searching SerpAPI for PDFs: "${pdfQuery}"`)
+  console.log(`Searching SerpAPI for PDFs: "${pdfQuery}"`)
 
   try {
     const response = await axios.get('https://serpapi.com/search', {
@@ -503,10 +466,9 @@ async function searchGoogleForPDFs(query: string): Promise<any> {
   }
 }
 
-// Find and validate the first PDF from Google search results
 function findFirstValidPDF(searchResults: any): any {
   if (!searchResults?.items?.length) {
-    console.log('❌ No search results to process')
+    console.log('No search results to process')
     return null
   }
 
@@ -516,7 +478,7 @@ function findFirstValidPDF(searchResults: any): any {
     const fileFormat = item.fileFormat || ''
     const mimeType = item.mime || ''
 
-    console.log(`📄 Checking result: "${title}"`)
+    console.log(`� Checking result: "${title}"`)
 
     const isPDF =
       url.toLowerCase().endsWith('.pdf') ||
@@ -534,7 +496,7 @@ function findFirstValidPDF(searchResults: any): any {
       ))
 
     if (isPDF) {
-      console.log(`✅ Found valid PDF: "${title}"`)
+      console.log(`Found valid PDF: "${title}"`)
       return {
         title: title,
         url: url,
@@ -545,11 +507,10 @@ function findFirstValidPDF(searchResults: any): any {
     }
   }
 
-  console.log('❌ No valid PDF found in results')
+  console.log('No valid PDF found in results')
   return null
 }
 
-// Exa search integration (keeping for backward compatibility)
 async function searchWithExa(query: string): Promise<any> {
   if (!EXA_API_KEY) {
     console.warn("Exa API key not available")
@@ -579,7 +540,6 @@ async function searchWithExa(query: string): Promise<any> {
   }
 }
 
-// Function to upload project data to S3 using direct HTTP PUT
 async function uploadProjectToS3(project: Project, barcode: string, pdfUrl?: string): Promise<void> {
   try {
     const timestamp = new Date().toISOString()
@@ -607,36 +567,38 @@ async function uploadProjectToS3(project: Project, barcode: string, pdfUrl?: str
     })
 
     if (response.status === 200) {
-      console.log(`✅ Successfully uploaded project to S3!`)
-      console.log(`🌍 Public URL: ${url}`)
+      console.log(`Successfully uploaded project to S3!`)
+      console.log(`Public URL: ${url}`)
     } else {
-      console.log(`⚠️ Upload response: ${response.status}`)
+      console.log(`Upload response: ${response.status}`)
     }
 
   } catch (error: any) {
-    console.error("❌ Failed to upload to S3:", error.response?.status || error.message)
+    console.error("Failed to upload to S3:", error.response?.status || error.message)
   }
 }
 
-// Process voice command with AI - Enhanced with Google/SerpAPI search
+/**
+ * Orchestrates AI pipeline to generate assembly instructions from barcode scan.
+ * Coordinates Cerebras (product ID), SerpAPI (manual search), and Anthropic (instruction parsing).
+ * Implements caching and fallbacks for robustness.
+ */
 async function processVoiceCommandWithAI(voiceCommand: string, barcode: string, session?: AppSession): Promise<Project | null> {
-  console.log(`🤖 Processing voice command with AI: "${voiceCommand}" + barcode: ${barcode}`)
+  console.log(`Processing voice command with AI: "${voiceCommand}" + barcode: ${barcode}`)
 
-  // Check if we already have this project cached
   const cacheKey = `barcode_${barcode}`
   if (projectCache.has(cacheKey)) {
-    console.log(`📦 Using cached project for barcode: ${barcode}`)
+    console.log(`Using cached project for barcode: ${barcode}`)
     const cachedProject = projectCache.get(cacheKey)!
 
-    // Log cached steps
-    console.log('📋 Cached Steps:')
+    console.log('Cached Steps:')
     cachedProject.steps.forEach((step: InstructionStep, index: number) => {
       console.log(`  ${index + 1}. ${step.title}: ${step.description}`)
       if (step.details) {
         step.details.forEach(detail => console.log(`     - ${detail}`))
       }
       if (step.tips) {
-        console.log(`     💡 ${step.tips}`)
+        console.log(`     ${step.tips}`)
       }
     })
 
@@ -644,22 +606,19 @@ async function processVoiceCommandWithAI(voiceCommand: string, barcode: string, 
   }
 
   try {
-    // Step 1: Identify product from barcode
-    console.log(`📋 Step 1: Identifying product for barcode ${barcode}`)
+    console.log(`Step 1: Identifying product for barcode ${barcode}`)
     const productIdQuery = await identifyProductFromBarcode(barcode)
     if (!productIdQuery) {
-      console.log(`❌ Failed to generate product identification query`)
+      console.log(`Failed to generate product identification query`)
       return null
     }
 
-    console.log(`📝 Product identification query: "${productIdQuery}"`)
+    console.log(`Product identification query: "${productIdQuery}"`)
 
-    // Search with Google/SerpAPI to identify the product
     let productSearchResults = await searchWithGoogle(productIdQuery)
 
-    // If first search fails, try fallback searches
     if (!productSearchResults || !productSearchResults.items || productSearchResults.items.length === 0) {
-      console.log(`⚠️ Primary search failed, trying fallback searches...`)
+      console.log(`Primary search failed, trying fallback searches...`)
 
       const fallbackQueries = [
         `${barcode} product`,
@@ -669,11 +628,11 @@ async function processVoiceCommandWithAI(voiceCommand: string, barcode: string, 
       ]
 
       for (const fallbackQuery of fallbackQueries) {
-        console.log(`🔄 Trying fallback: "${fallbackQuery}"`)
+        console.log(`� Trying fallback: "${fallbackQuery}"`)
         productSearchResults = await searchWithGoogle(fallbackQuery)
 
         if (productSearchResults?.items && productSearchResults.items.length > 0) {
-          console.log(`✅ Fallback search successful with: "${fallbackQuery}"`)
+          console.log(`Fallback search successful with: "${fallbackQuery}"`)
           break
         }
 
@@ -682,15 +641,13 @@ async function processVoiceCommandWithAI(voiceCommand: string, barcode: string, 
     }
 
     if (!productSearchResults || !productSearchResults.items || productSearchResults.items.length === 0) {
-      // If SerpAPI fails, try Exa as fallback
-      console.log(`⚠️ SerpAPI failed, trying Exa search...`)
+      console.log(`SerpAPI failed, trying Exa search...`)
       const exaResults = await searchWithExa(productIdQuery)
       if (!exaResults || !exaResults.results || exaResults.results.length === 0) {
-        console.log(`❌ All search attempts failed for barcode ${barcode}`)
+        console.log(`All search attempts failed for barcode ${barcode}`)
         return null
       }
 
-      // Create a simple project from Exa results
       const firstResult = exaResults.results[0]
       const project: Project = {
         id: `barcode_${barcode}`,
@@ -724,24 +681,22 @@ async function processVoiceCommandWithAI(voiceCommand: string, barcode: string, 
       return project
     }
 
-    // Use Cerebras to analyze Google results and get confident product identification
-    console.log(`🧠 Analyzing results with Cerebras for confident identification...`)
+    console.log(`Analyzing results with Cerebras for confident identification...`)
     const productTitle = await analyzeProductFromGoogleResults(barcode, productSearchResults)
     if (!productTitle) {
-      console.log(`❌ Could not identify product from search results`)
+      console.log(`Could not identify product from search results`)
       return null
     }
 
-    console.log(`✅ Cerebras identified product: "${productTitle}"`)
+    console.log(`Cerebras identified product: "${productTitle}"`)
 
-    // Display the identified product on the glasses if session is available
     if (session) {
       const identificationText = [
-        "🔍 PRODUCT IDENTIFIED",
+        "PRODUCT IDENTIFIED",
         "",
-        `📦 ${productTitle}`,
+        `${productTitle}`,
         "",
-        `🔢 Barcode: ${barcode}`,
+        `Barcode: ${barcode}`,
         "",
         "Processing instructions..."
       ].join("\n")
@@ -752,21 +707,19 @@ async function processVoiceCommandWithAI(voiceCommand: string, barcode: string, 
       })
     }
 
-    // Step 2: Generate instruction search query
-    console.log(`📋 Step 2: Generating instruction query for "${productTitle}"`)
+    console.log(`Step 2: Generating instruction query for "${productTitle}"`)
     const instructionQuery = await generateInstructionQuery(voiceCommand, productTitle)
     if (!instructionQuery) {
-      console.log(`❌ Failed to generate instruction query`)
+      console.log(`Failed to generate instruction query`)
       return null
     }
 
-    console.log(`📝 Instruction query: "${instructionQuery}"`)
+    console.log(`Instruction query: "${instructionQuery}"`)
 
-    // Search for PDF instructions
     let instructionResults = await searchGoogleForPDFs(instructionQuery)
 
     if (!instructionResults || !instructionResults.items?.length) {
-      console.log(`⚠️ PDF search failed, trying regular search...`)
+      console.log(`PDF search failed, trying regular search...`)
       instructionResults = await searchWithGoogle(instructionQuery)
     }
 
@@ -774,12 +727,10 @@ async function processVoiceCommandWithAI(voiceCommand: string, barcode: string, 
       const firstPDF = findFirstValidPDF(instructionResults)
 
       if (firstPDF) {
-        console.log(`📄 Found PDF/instruction manual: ${firstPDF.title}`)
+        console.log(`Found PDF/instruction manual: ${firstPDF.title}`)
 
-        // Generate dynamic instructions using Anthropic API
         const steps = await generateInstructionsFromPDF(productTitle, firstPDF.url)
 
-        // Create a project with the generated instructions
         const project: Project = {
           id: `barcode_${barcode}`,
           name: productTitle,
@@ -788,20 +739,18 @@ async function processVoiceCommandWithAI(voiceCommand: string, barcode: string, 
           steps: steps
         }
 
-        // Cache the project
         projectCache.set(`barcode_${barcode}`, project)
-        console.log(`💾 Cached project: ${project.name}`)
+        console.log(`Cached project: ${project.name}`)
 
-        // Upload to S3
         await uploadProjectToS3(project, barcode, firstPDF.url)
 
         if (session) {
           const finalText = [
-            "✅ INSTRUCTIONS FOUND",
+            "INSTRUCTIONS FOUND",
             "",
-            `📦 ${productTitle}`,
+            `${productTitle}`,
             "",
-            `📄 ${firstPDF.title}`,
+            `${firstPDF.title}`,
             "",
             "Ready to guide you!"
           ].join("\n")
@@ -816,8 +765,7 @@ async function processVoiceCommandWithAI(voiceCommand: string, barcode: string, 
       }
     }
 
-    // Fallback: Create a project with generic instructions
-    console.log(`⚠️ No PDF found, generating generic instructions`)
+    console.log(`No PDF found, generating generic instructions`)
     const steps = await generateInstructionsFromPDF(productTitle, "")
 
     const project: Project = {
@@ -828,11 +776,9 @@ async function processVoiceCommandWithAI(voiceCommand: string, barcode: string, 
       steps: steps
     }
 
-    // Cache the fallback project too
     projectCache.set(`barcode_${barcode}`, project)
-    console.log(`💾 Cached fallback project: ${project.name}`)
+    console.log(`Cached fallback project: ${project.name}`)
 
-    // Upload fallback project to S3 (no PDF URL)
     await uploadProjectToS3(project, barcode)
 
     return project
@@ -849,7 +795,7 @@ class EnhancedHandymanAssistant extends AppServer {
     currentStep: number
     startTime: number
     availableProjects: Map<string, Project>
-    stepsGenerated: boolean // Flag to stop AI processing after steps are generated
+    stepsGenerated: boolean
   }> = new Map()
 
   private transcriptionCleanups = new Map<string, () => void>()
@@ -871,7 +817,6 @@ class EnhancedHandymanAssistant extends AppServer {
     this.sessionManager = new SessionManager()
     this.barcodeService = new BarcodeService()
 
-    // Set up Express routes for webview
     setupExpressRoutes(this)
   }
 
@@ -882,7 +827,7 @@ class EnhancedHandymanAssistant extends AppServer {
   ): Promise<void> {
     console.log(`
 =======================================
-🎉 NEW SESSION CONNECTED!
+� NEW SESSION CONNECTED!
 Session ID: ${sessionId}
 User ID: ${userId}
 Time: ${new Date().toISOString()}
@@ -890,10 +835,8 @@ Time: ${new Date().toISOString()}
     `)
     session.logger.info(`New session started for user ${userId}`)
 
-    // Initialize empty project map (will be populated via barcode search)
     const availableProjects = new Map<string, Project>()
 
-    // Initialize session state
     this.sessions.set(sessionId, {
       state: 'welcome',
       currentStep: 0,
@@ -902,16 +845,9 @@ Time: ${new Date().toISOString()}
       stepsGenerated: false
     })
 
-    // Try to load S3 data in background
     this.loadS3Data(sessionId)
-
-    // Set up transcription for voice commands
     await this.setupVoiceTranscription(session, sessionId, userId)
-
-    // Fetch initial barcode
     await this.updateCurrentBarcode()
-
-    // Show welcome screen
     this.showWelcomeScreen(session)
   }
 
@@ -921,7 +857,6 @@ Time: ${new Date().toISOString()}
       if (s3Data) {
         const sessionData = this.sessions.get(sessionId)
         if (sessionData) {
-          // Convert S3 data to Project format
           const s3Project: Project = {
             id: 's3_product',
             name: `${s3Data.product.name} (${s3Data.product.brand})`,
@@ -954,7 +889,6 @@ Time: ${new Date().toISOString()}
 
     switch (toolCall.toolId) {
       case "identify_device":
-        // This could trigger barcode scanning or S3 data loading
         const s3Device = await this.dataIngestionService.getDeviceIdentification()
         if (s3Device) {
           return `Identified: ${s3Device.name} - ${s3Device.description}`
@@ -1024,35 +958,31 @@ Time: ${new Date().toISOString()}
     const command = transcriptionData.text?.toLowerCase().trim()
     if (!command) return
 
-    console.log(`🎤 Voice command: "${command}" (state: ${state.state})`)
+    console.log(`Voice command: "${command}" (state: ${state.state})`)
 
-    // If we're in building mode, prioritize navigation commands
     if (state.state === 'building') {
-      // Check for navigation commands first
       if (command.includes('next') || command.includes('continue') ||
           command.includes('back') || command.includes('previous') ||
           command.includes('repeat') || command.includes('again') ||
           command.includes('start over') || command.includes('restart')) {
-        console.log('🎯 Processing navigation command directly')
+        console.log('Processing navigation command directly')
         this.processVoiceCommand(session, sessionId, command)
         return
       }
     }
 
-    // For welcome state, try to process with AI for barcode-based instructions (only if not already generated)
     if (state.state === 'welcome' && !state.stepsGenerated) {
-      console.log('🔄 Starting AI processing for barcode...')
+      console.log('Starting AI processing for barcode...')
       try {
-        // Ensure we have a current barcode
         await this.updateCurrentBarcode()
         if (!CURRENT_BARCODE) {
-          console.error('❌ No barcode available')
+          console.error('No barcode available')
           return
         }
         const aiProject = await processVoiceCommandWithAI(command, CURRENT_BARCODE, session)
         if (aiProject && state) {
           state.availableProjects.set(aiProject.id, aiProject)
-          state.stepsGenerated = true // Mark as generated to stop further processing
+          state.stepsGenerated = true
           this.sessions.set(sessionId, state)
 
           console.log('AI-generated project added:', aiProject.name)
@@ -1063,10 +993,9 @@ Time: ${new Date().toISOString()}
         console.error('Error processing barcode:', error)
       }
     } else if (state.state === 'welcome' && state.stepsGenerated) {
-      console.log('⏹️ Steps already generated, ignoring voice command')
+      console.log('Steps already generated, ignoring voice command')
     }
 
-    // Process the voice command
     this.processVoiceCommand(session, sessionId, command)
   }
 
@@ -1074,12 +1003,11 @@ Time: ${new Date().toISOString()}
     const state = this.sessions.get(sessionId)
     if (!state) return
 
-    // Welcome screen - show scanning message (AI processing happens in background)
     if (state.state === 'welcome') {
       session.layouts.showTextWall([
-        "🔍 SCANNING BARCODE",
+        "SCANNING BARCODE",
         "",
-        `📊 ${CURRENT_BARCODE || "Fetching..."}`,
+        `${CURRENT_BARCODE || "Fetching..."}`,
         "",
         "Searching for product...",
         "Generating instructions..."
@@ -1090,41 +1018,37 @@ Time: ${new Date().toISOString()}
       return
     }
 
-    // Project selection - simplified for barcode/S3 only
     if (state.state === 'selecting') {
-      // Check for barcode product
       if (CURRENT_BARCODE && state.availableProjects.has(`barcode_${CURRENT_BARCODE}`)) {
         this.handleProjectSelection(session, sessionId, `barcode_${CURRENT_BARCODE}`)
         return
       }
-      // Check for S3 product
       else if (state.availableProjects.has('s3_product')) {
         this.handleProjectSelection(session, sessionId, 's3_product')
         return
       }
     }
 
-    // Navigation during building
     if (state.state === 'building' && state.currentProject) {
-      console.log(`🎮 Navigation command in building mode: "${command}"`)
+      console.log(`Navigation command in building mode: "${command}"`)
 
       if (command.includes('next') || command.includes('continue') || command.includes('forward')) {
-        console.log('📍 Next step requested')
+        console.log('Next step requested')
         this.handleNextStep(session, sessionId)
         return
       }
       else if (command.includes('back') || command.includes('previous') || command.includes('last')) {
-        console.log('📍 Previous step requested')
+        console.log('Previous step requested')
         this.handlePreviousStep(session, sessionId)
         return
       }
       else if (command.includes('repeat') || command.includes('again') || command.includes('what')) {
-        console.log('📍 Repeat step requested')
+        console.log('Repeat step requested')
         this.showInstructionStep(session, state.currentProject, state.currentStep)
         return
       }
       else if (command.includes('start over') || command.includes('restart') || command.includes('beginning')) {
-        console.log('📍 Restart requested')
+        console.log('Restart requested')
         state.currentStep = 0
         this.showInstructionStep(session, state.currentProject, state.currentStep)
         this.sessions.set(sessionId, state)
@@ -1132,7 +1056,6 @@ Time: ${new Date().toISOString()}
       }
     }
 
-    // Completed state
     if (state.state === 'completed') {
       if (command.includes('new') || command.includes('another') || command.includes('different')) {
         this.handleNewProject(session, sessionId)
@@ -1144,10 +1067,10 @@ Time: ${new Date().toISOString()}
   private showWelcomeScreen(session: AppSession): void {
     const barcodeDisplay = CURRENT_BARCODE || "Fetching..."
     session.layouts.showTextWall([
-      "🔧 AI HANDYMAN PRO",
-      "Barcode-powered assistant",
+      "MARVIS",
+      "AI Handyman Assistant",
       "",
-      `📊 Barcode: ${barcodeDisplay}`,
+      `Barcode: ${barcodeDisplay}`,
       "Say anything to scan"
     ].join("\n"), {
       view: ViewType.MAIN,
@@ -1158,7 +1081,7 @@ Time: ${new Date().toISOString()}
   private showProjectSelection(session: AppSession, state: any): void {
     if (state.availableProjects.size === 0) {
       session.layouts.showTextWall([
-        "🔍 SEARCHING...",
+        "SEARCHING...",
         "",
         "Looking for instructions",
         `Barcode: ${CURRENT_BARCODE || "Fetching..."}`,
@@ -1171,12 +1094,11 @@ Time: ${new Date().toISOString()}
       return
     }
 
-    const lines = ["📦 PRODUCTS FOUND:"]
+    const lines = ["PRODUCTS FOUND:"]
 
-    state.availableProjects.forEach((project: Project, key: string) => {
-      const source = project.source === 's3' ? '☁️' : '📊'
+    state.availableProjects.forEach((project: Project) => {
       lines.push("")
-      lines.push(`${source} ${project.name}`)
+      lines.push(`${project.name}`)
       lines.push(`Steps: ${project.totalSteps}`)
     })
 
@@ -1192,9 +1114,8 @@ Time: ${new Date().toISOString()}
   private showInstructionStep(session: AppSession, project: Project, stepIndex: number): void {
     const step = project.steps[stepIndex]
 
-    console.log(`🖥️ Displaying step ${stepIndex + 1}/${project.totalSteps}: ${step.title}`)
+    console.log(`Displaying step ${stepIndex + 1}/${project.totalSteps}: ${step.title}`)
 
-    // Try the absolute simplest format possible
     const basicContent = [
       `Step ${step.id}/${project.totalSteps}`,
       `${step.title}`,
@@ -1202,7 +1123,6 @@ Time: ${new Date().toISOString()}
       `${step.description}`
     ]
 
-    // Add details in simple numbered list
     if (step.details && step.details.length > 0) {
       basicContent.push("")
       step.details.forEach((detail, index) => {
@@ -1210,7 +1130,6 @@ Time: ${new Date().toISOString()}
       })
     }
 
-    // Add tip if available
     if (step.tips) {
       basicContent.push("")
       basicContent.push(`Tip: ${step.tips}`)
@@ -1220,18 +1139,16 @@ Time: ${new Date().toISOString()}
     basicContent.push("Say 'next' or 'back'")
 
     const basicText = basicContent.join("\n")
-    console.log(`📱 Basic format (${basicText.length} chars, ${basicContent.length} lines)`)
-    console.log("📱 Full content being sent:")
+    console.log(`Basic format (${basicText.length} chars, ${basicContent.length} lines)`)
+    console.log("Full content being sent:")
     console.log(basicText)
-    console.log("📱 ==================")
+    console.log("==================")
 
-    // Send the basic version first
     session.layouts.showTextWall(basicText, {
       view: ViewType.MAIN,
       durationMs: undefined
     })
 
-    // If that doesn't work, try just the step title and description
     setTimeout(() => {
       const minimalContent = [
         `Step ${step.id}: ${step.title}`,
@@ -1242,8 +1159,8 @@ Time: ${new Date().toISOString()}
       ]
 
       const minimalText = minimalContent.join("\n")
-      console.log(`📱 Minimal fallback (${minimalText.length} chars)`)
-      console.log("📱 Minimal content:")
+      console.log(`Minimal fallback (${minimalText.length} chars)`)
+      console.log("Minimal content:")
       console.log(minimalText)
 
       session.layouts.showTextWall(minimalText, {
@@ -1256,7 +1173,7 @@ Time: ${new Date().toISOString()}
   private createProgressBar(current: number, total: number): string {
     const filled = Math.round((current / total) * 10)
     const empty = 10 - filled
-    return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${current}/${total}`
+    return `[${'='.repeat(filled)}${' '.repeat(empty)}] ${current}/${total}`
   }
 
   private showCompletionScreen(session: AppSession, sessionId: string, project: Project): void {
@@ -1264,7 +1181,7 @@ Time: ${new Date().toISOString()}
     const timeElapsed = sessionData ? Math.round((Date.now() - sessionData.startTime) / 60000) : 0
 
     session.layouts.showTextWall([
-      "🎉 COMPLETE! 🎉",
+      "COMPLETE!",
       `${project.name} done`,
       `Time: ${timeElapsed} minutes`,
       "",
@@ -1278,11 +1195,11 @@ Time: ${new Date().toISOString()}
   private handleNextStep(session: AppSession, sessionId: string): void {
     const state = this.sessions.get(sessionId)
     if (!state || !state.currentProject) {
-      console.error('❌ handleNextStep: No state or project found')
+      console.error('handleNextStep: No state or project found')
       return
     }
 
-    console.log(`➡️ Moving from step ${state.currentStep + 1} to ${state.currentStep + 2} (total: ${state.currentProject.totalSteps})`)
+    console.log(`Moving from step ${state.currentStep + 1} to ${state.currentStep + 2} (total: ${state.currentProject.totalSteps})`)
 
     if (state.currentStep < state.currentProject.totalSteps - 1) {
       state.currentStep++
@@ -1312,7 +1229,7 @@ Time: ${new Date().toISOString()}
     state.currentStep = 0
     state.currentProject = undefined
     state.startTime = Date.now()
-    state.stepsGenerated = false // Reset for new project
+    state.stepsGenerated = false
     this.showProjectSelection(session, state)
 
     this.sessions.set(sessionId, state)
@@ -1331,14 +1248,12 @@ Time: ${new Date().toISOString()}
       return
     }
 
-    // Update state to building mode
     state.state = 'building'
     state.currentProject = project
     state.currentStep = 0
     state.startTime = Date.now()
     this.sessions.set(sessionId, state)
 
-    // Show the first step
     this.showInstructionStep(session, project, 0)
     console.log(`Started project: ${project.name} (${project.source})`)
   }
@@ -1348,10 +1263,10 @@ Time: ${new Date().toISOString()}
       const barcode = await this.barcodeService.getCurrentBarcode()
       if (barcode && barcode !== CURRENT_BARCODE) {
         CURRENT_BARCODE = barcode
-        console.log(`📊 Updated current barcode: ${CURRENT_BARCODE}`)
+        console.log(`Updated current barcode: ${CURRENT_BARCODE}`)
       }
     } catch (error) {
-      console.error('❌ Error updating barcode:', error)
+      console.error('Error updating barcode:', error)
     }
   }
 }
@@ -1360,14 +1275,14 @@ const server = new EnhancedHandymanAssistant()
 
 server.start()
   .then(() => {
-    console.log(`🔧 Enhanced AI Handyman Assistant running on port ${PORT}`)
-    console.log(`📱 Ready to connect to MentraOS glasses`)
-    console.log(`🎯 Data sources: Hardcoded | S3 | Barcode API`)
-    console.log(`🎤 Voice commands enabled via transcription API`)
-    console.log(`🤖 AI processing: ${CEREBRAS_API_KEY ? '✅ Cerebras' : '❌ Cerebras'}`)
-    console.log(`🔍 Search APIs: ${SERPAPI_KEY ? '✅ SerpAPI' : '❌ SerpAPI'} | ${EXA_API_KEY ? '✅ Exa' : '❌ Exa'}`)
-    console.log(`📊 Barcode: Dynamic from S3 (${CURRENT_BARCODE || 'fetching...'})`)
-    console.log(`☁️ S3 data ingestion enabled`)
+    console.log(`Marvis - AI Handyman Assistant running on port ${PORT}`)
+    console.log(`Ready to connect to MentraOS glasses`)
+    console.log(`Data sources: Hardcoded | S3 | Barcode API`)
+    console.log(`Voice commands enabled via transcription API`)
+    console.log(`AI processing: ${CEREBRAS_API_KEY ? 'Cerebras' : 'Cerebras'}`)
+    console.log(`Search APIs: ${SERPAPI_KEY ? 'SerpAPI' : 'SerpAPI'} | ${EXA_API_KEY ? 'Exa' : 'Exa'}`)
+    console.log(`Barcode: Dynamic from S3 (${CURRENT_BARCODE || 'fetching...'})`)
+    console.log(`S3 data ingestion enabled`)
   })
   .catch((error) => {
     console.error("Failed to start server:", error)

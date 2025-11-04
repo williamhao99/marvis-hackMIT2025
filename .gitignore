@@ -32,7 +32,17 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+**/.DS_Store
 
+# IDE and Editor configs
 .cursor
-CLAUDE.md
 .claude
+CLAUDE.md
+
+# Captured images (temporary files)
+captured_images/*.jpg
+captured_images/*.png
+!captured_images/.gitkeep
+
+# Build artifacts
+*.tgz

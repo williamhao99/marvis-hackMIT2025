@@ -304,7 +304,7 @@ Generate 5-8 practical, actionable steps. Include safety warnings where appropri
     }
 
     if (step.warnings && step.warnings.length > 0) {
-      display += `\n\n⚠️ ${step.warnings.join('\n⚠️ ')}`;
+      display += `\n\n${step.warnings.join('\n')}`;
     }
 
     return display;

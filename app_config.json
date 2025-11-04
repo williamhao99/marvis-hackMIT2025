@@ -1,7 +1,7 @@
 {
-  "name": "Hello World test app hackathon",
-  "description": "print hello world on the even realities glasses",
-  "onboardingInstructions": "none",
+  "name": "Marvis",
+  "description": "AI-powered handyman assistant for smart glasses",
+  "onboardingInstructions": "Scan a product barcode to receive step-by-step assembly instructions",
   "publicUrl": "https://unspirited-gladis-unequatorial.ngrok-free.app",
   "logoURL": "https://imagedelivery.net/nrc8B2Lk8UIoyW7fY8uHVg/cf659b8d-cd30-4bc6-af01-9928b41c9c00/square",
   "appType": "standard",
